@@ -3,10 +3,11 @@ import { canEdit } from './policy.js';
 import { attachDocuments } from './documents-ui.js';
 import {auditMarkup,createAuditView} from './audit-ui.js';
 import { detailsForm, detailsPayload, recordDetails, matchesRecord, setDetailValue } from './record-fields.js';
+import {renderRecordList} from './record-list.js';
 import './style.css';
 
 const root = document.querySelector('#app');
-root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><button id="retry" hidden>Erneut versuchen</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name oder Ausweisnummer eingeben"></label><button id="new" hidden>Neue Akte</button><button id="auditToggle" type="button" hidden>Änderungsprotokoll</button></div><p id="count"></p><div id="records"></div><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2><label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label>${detailsForm}<label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form>${auditMarkup}</section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
+root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><button id="retry" hidden>Erneut versuchen</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name oder Ausweisnummer eingeben"></label><button id="new" hidden>Neue Akte</button><button id="auditToggle" type="button" hidden>Änderungsprotokoll</button></div><p id="count"></p><div id="records"></div><section id="recordDetail" hidden><button id="backToList" type="button">← Zur Aktenübersicht</button><div id="recordContent"></div></section><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2><label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label>${detailsForm}<label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form>${auditMarkup}</section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
 const el = id => document.getElementById(id);
 const status = message => { el('status').textContent = message; };
 const url = import.meta.env.VITE_SUPABASE_URL;
@@ -14,22 +15,47 @@ const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 let db, role, records = [], editing = null, generation = 0;
 let retryUntil = Number(sessionStorage.getItem('nc_retry_until')) || 0;
 let documentCleanups=[];
+let selectedRecord=null,viewVersion=0;
 const auditView=createAuditView({api,getRecords:()=>records,isAllowed:()=>role==='editor',onError:status});
 function clearDocumentPreviews(){for(const dispose of documentCleanups)dispose();documentCleanups=[];}
 function clear() {
   auditView.clear();
   clearDocumentPreviews();
-  generation++; role = null; records = []; editing = null;
-  el('records').replaceChildren(); el('editor').reset();
-  for (const id of ['workspace','editor','new','logout','retry','auditToggle']) el(id).hidden = true;
+  generation++; viewVersion++; selectedRecord=null; role = null; records = []; editing = null;
+  el('records').replaceChildren(); el('recordContent').replaceChildren();el('editor').reset();
+  for (const id of ['workspace','editor','new','logout','retry','auditToggle','recordDetail']) el(id).hidden = true;
 }
 function render() {
-  clearDocumentPreviews();
-  const turn = generation;
-  el('records').replaceChildren();
-  const filtered = records.filter(r => matchesRecord(r,el('search').value));
-  el('count').textContent = `${filtered.length} Akten angezeigt (maximal 200 geladen)`;
-  for (const record of filtered) {
+  const filtered=records.filter(record=>matchesRecord(record,el('search').value));
+  el('count').textContent=filtered.length+' Akten angezeigt (maximal 200 geladen)';
+  renderRecordList(el('records'),filtered,openRecord);
+}
+function showList() {
+  viewVersion++;selectedRecord=null;editing=null;clearDocumentPreviews();
+  el('recordContent').replaceChildren();el('recordDetail').hidden=true;
+  el('editor').hidden=true;el('editor').reset();el('records').hidden=false;
+  el('count').hidden=false;el('search').closest('label').hidden=false;
+  render();el('search').focus();
+}
+async function openRecord(id) {
+  const request=++viewVersion,turn=generation;clearDocumentPreviews();selectedRecord=null;editing=null;
+  el('editor').hidden=true;el('editor').reset();el('records').hidden=true;el('count').hidden=true;
+  el('search').closest('label').hidden=true;el('recordDetail').hidden=false;
+  el('recordContent').textContent='Akte wird geladen …';el('backToList').focus();
+  try {
+    const result=await api('GET',undefined,'/api/records?record_id='+encodeURIComponent(id));
+    if(request!==viewVersion || turn!==generation) return;
+    selectedRecord=result.record;role=result.role;el('new').hidden=!canEdit(role);el('auditToggle').hidden=role!=='editor';
+    if(role!=='editor')auditView.clear();
+    status(role==='editor'?'Discord-Rolle geprüft · Lesen und Bearbeiten':'Discord-Rolle geprüft · Nur Lesen');
+    renderDetail(result.record);
+  }catch(error){
+    if(request!==viewVersion || turn!==generation)return;
+    el('recordContent').textContent=error.message;status(error.message);
+  }
+}
+function renderDetail(record) {
+  clearDocumentPreviews();const turn=generation,view=viewVersion;
     const article = document.createElement('article');
     const title = document.createElement('h2'); title.textContent = [record.first_name,record.last_name].filter(Boolean).join(' ');
     const notes = document.createElement('p'); notes.className = 'notes'; notes.textContent = record.notes;
@@ -52,11 +78,13 @@ function render() {
       };
       article.append(remove);
     }
-    el('records').append(article);
-    documentCleanups.push(attachDocuments(article,record,{api,canUpload:canEdit(role),onError:status,isCurrent:()=>turn===generation}));
-  }
+    el('recordContent').replaceChildren(article);
+    documentCleanups.push(attachDocuments(article,record,{api,canUpload:canEdit(role),onError:status,isCurrent:()=>turn===generation && view===viewVersion}));
 }
+el('backToList').onclick=showList;
+
 function openEditor(record) {
+  if(!record){viewVersion++;selectedRecord=null;clearDocumentPreviews();el('recordContent').replaceChildren();el('recordDetail').hidden=true;el('records').hidden=true;el('count').hidden=true;el('search').closest('label').hidden=true;}
   editing = record; el('editor').hidden = false;
   el('formtitle').textContent = record ? 'Akte bearbeiten' : 'Neue Akte';
   el('first_name').value = record?.first_name ?? ''; el('last_name').value = record?.last_name ?? ''; el('notes').value = record?.notes ?? ''; el('first_name').focus();
@@ -75,7 +103,7 @@ async function load() {
     role = result.role; records = result.records;
     el('workspace').hidden = false; el('new').hidden = !canEdit(role);
     el('auditToggle').hidden=role!=='editor';
-    status(role === 'editor' ? 'Discord-Rolle geprüft · Lesen und Bearbeiten' : 'Discord-Rolle geprüft · Nur Lesen'); render();
+    status(role === 'editor' ? 'Discord-Rolle geprüft · Lesen und Bearbeiten' : 'Discord-Rolle geprüft · Nur Lesen'); showList();
   } catch(error) {
     if(turn !== generation) return;
     status(error.message);
@@ -83,16 +111,17 @@ async function load() {
 }
 el('search').oninput = render;
 el('new').onclick = () => openEditor(null);
-el('cancel').onclick = () => { el('editor').hidden = true; el('editor').reset(); editing = null; };
+el('cancel').onclick = () => { el('editor').hidden = true; el('editor').reset(); editing = null; if(!selectedRecord)showList(); };
 el('editor').onsubmit = async event => {
   event.preventDefault(); const button = event.submitter; button.disabled = true;
   try {
-    await api(editing ? 'PATCH' : 'POST',{
+    const saved=await api(editing ? 'PATCH' : 'POST',{
       first_name:el('first_name').value,last_name:el('last_name').value,notes:el('notes').value,
       ...detailsPayload(field=>el(field).value),
       ...(editing ? {id:editing.id,updated_at:editing.updated_at} : {})
     });
     await load();
+    if(role && saved.id)await openRecord(saved.id);
   } catch(error) { status(error.message); } finally { button.disabled = false; }
 };
 function showRetry() {

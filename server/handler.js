@@ -14,7 +14,15 @@ export function makeHandler({getClient,fetcher,cacheFor}) {
    const ready = await db.rpc('nc_gateway_ready');
    if(ready.error || ready.data !== true) throw new AccessError(503,'Die sichere Datenbankeinrichtung ist noch nicht abgeschlossen.');
    if(req.method === 'GET') {
-    const {data,error} = await db.from('person_files').select(fields).is('deleted_at',null).order('last_name').order('id').limit(200);
+    const recordId=req.query?.record_id;
+    if(recordId!==undefined) {
+     if(typeof recordId!=='string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recordId)) throw new AccessError(400,'Ungültige Aktenreferenz.');
+     const {data,error}=await db.from('person_files').select(fields).eq('id',recordId).is('deleted_at',null).maybeSingle();
+     if(error) throw new Error('database');
+     if(!data) throw new AccessError(404,'Akte nicht gefunden. Bitte die Übersicht aktualisieren.');
+     return res.status(200).json({role:access.role,record:data});
+    }
+    const {data,error} = await db.from('person_files').select('id,first_name,last_name,identity_number').is('deleted_at',null).order('last_name').order('id').limit(200);
     if(error) throw new Error('database');
     return res.status(200).json({role:access.role,records:data});
    }
@@ -37,7 +45,7 @@ export function makeHandler({getClient,fetcher,cacheFor}) {
    const {data,error} = await query.select('id');
    if(error) throw new Error('database');
    if(!data?.length) throw new AccessError(409,'Akte wurde inzwischen geändert. Bitte neu laden.');
-   return res.status(200).json({ok:true});
+   return res.status(200).json({ok:true,id:data[0].id});
   } catch(error) {
    if(error.retryAfter) res.setHeader('Retry-After',String(error.retryAfter));
    return res.status(error instanceof AccessError ? error.status : 503).json({error:error instanceof AccessError ? error.message : 'Verbindung fehlgeschlagen. Es wurden keine Daten freigegeben.',...(error.retryAfter?{retryAfter:error.retryAfter}:{})});
