@@ -1,3 +1,4 @@
+import {createImagePreview} from './image-preview.js';
 const labels={profile:'Profilbild',identity:'Ausweis',driver_license:'Führerschein',firearm_license:'Waffenschein',other:'Sonstiges'};
 export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}) {
  const toggle=document.createElement('button');toggle.textContent='Dokumente';
@@ -5,15 +6,18 @@ export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}
  const list=document.createElement('div');
  const heading=document.createElement('h3');heading.textContent='Bilder und Dokumente';panel.append(heading,list);
  article.append(toggle,panel);
- const current=()=>article.isConnected && isCurrent();
+ const current=()=>article.isConnected && !panel.hidden && isCurrent();
+ let previews=[];
+ const clearPreviews=()=>{for(const preview of previews) preview.clear();previews=[];};
  async function refresh() {
+  clearPreviews();
   list.textContent='Dokumente werden geladen …';
   const data=await api('GET',undefined,'/api/documents?file_id='+encodeURIComponent(record.id));
   if(!current()) return;
   list.replaceChildren();
   if(!data.documents.length) list.textContent='Noch keine Dokumente vorhanden.';
   for(const item of data.documents) {
-   const row=document.createElement('p');
+   const row=document.createElement('div');row.className='document-entry';
    const name=document.createElement('span');name.textContent=(labels[item.kind] ?? 'Dokument')+' · '+new Date(item.created_at).toLocaleDateString('de-DE')+' ';
    const download=document.createElement('button');download.type='button';download.textContent='Herunterladen';
    download.onclick=async()=>{
@@ -27,16 +31,18 @@ export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}
      setTimeout(()=>URL.revokeObjectURL(url),1000);
     } catch(error){onError(error.message);}finally{download.disabled=false;}
    };
-   row.append(name,download);list.append(row);
+   const preview=createImagePreview({label:labels[item.kind] ?? 'Dokument',isCurrent:current,onError,
+    load:()=>api('GET',undefined,'/api/documents?document_id='+encodeURIComponent(item.id),true)});
+   previews.push(preview);row.append(name,preview.button,download,preview.view);list.append(row);
   }
  }
  toggle.onclick=async()=>{
   panel.hidden=!panel.hidden;
-  if(panel.hidden) return;
+  if(panel.hidden) {clearPreviews();return;}
   toggle.disabled=true;
   try{await refresh();}catch(error){if(current()) list.textContent='Dokumente konnten nicht geladen werden.';onError(error.message);}finally{toggle.disabled=false;}
  };
- if(!canUpload) return;
+ if(!canUpload) return clearPreviews;
  const form=document.createElement('form');
  const kindLabel=document.createElement('label');kindLabel.textContent='Dokumentart';
  const kind=document.createElement('select');
@@ -62,4 +68,5 @@ export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}
    file.value='';state.textContent='Bild wurde gespeichert.';await refresh();
   } catch(error){if(current()) state.textContent=error.message;onError(error.message);}finally{submit.disabled=false;}
  };
+ return clearPreviews;
 }

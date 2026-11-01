@@ -12,12 +12,16 @@ const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 let db, role, records = [], editing = null, generation = 0;
 let retryUntil = Number(sessionStorage.getItem('nc_retry_until')) || 0;
+let documentCleanups=[];
+function clearDocumentPreviews(){for(const dispose of documentCleanups)dispose();documentCleanups=[];}
 function clear() {
+  clearDocumentPreviews();
   generation++; role = null; records = []; editing = null;
   el('records').replaceChildren(); el('editor').reset();
   for (const id of ['workspace','editor','new','logout','retry']) el(id).hidden = true;
 }
 function render() {
+  clearDocumentPreviews();
   const turn = generation;
   el('records').replaceChildren();
   const filtered = records.filter(r => matchesRecord(r,el('search').value));
@@ -37,7 +41,7 @@ function render() {
       edit.onclick = () => openEditor(record); article.append(edit);
     }
     el('records').append(article);
-    attachDocuments(article,record,{api,canUpload:canEdit(role),onError:status,isCurrent:()=>turn===generation});
+    documentCleanups.push(attachDocuments(article,record,{api,canUpload:canEdit(role),onError:status,isCurrent:()=>turn===generation}));
   }
 }
 function openEditor(record) {
