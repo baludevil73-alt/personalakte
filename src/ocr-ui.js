@@ -16,7 +16,7 @@ export function createOcrView({isAllowed,onApply}){
     el('ocrStatus').textContent=stage==='preparing image'?'Bild wird vergrößert und der Kontrast angepasst …':stage==='second pass'?'Zweiter Erkennungsversuch für das Kartenlayout …':stage==='recognizing text'?'Text wird erkannt · '+Math.round(progress*100)+' %':'Texterkennung und Sprachdateien werden vorbereitet …';
    },{template:el('ocrTemplate').value});
    if(request!==version || !isAllowed())return;
-   const values=parseIdentityText(result.text);
+   const values=result.values ?? parseIdentityText(result.text);
    for(const [field] of fields){el('ocrValue_'+field).value=values[field] ?? '';el('ocrUse_'+field).checked=!!values[field];}
    el('ocrText').value=result.text;el('ocrResults').hidden=false;
    el('ocrStatus').textContent=Object.keys(values).length?'Vorschläge erkannt. Bitte mit dem Ausweis vergleichen und gegebenenfalls korrigieren.':result.text.trim()?'Text erkannt, aber keine Felder sicher zugeordnet. Bitte den erkannten Text prüfen.':'Kein Text erkannt. Bitte nur den Ausweis ausschneiden und ein schärferes Bild verwenden.';
@@ -33,7 +33,7 @@ export function createOcrView({isAllowed,onApply}){
   if(!Object.keys(values).length){el('ocrStatus').textContent='Keine Angaben übernommen: Bitte zuerst einen erkannten Wert eintragen und markieren.';return;}
   const changed=Object.entries(values).filter(([field,value])=>el(field).value && el(field).value!==value);
   if(changed.length && !confirm('Vorhandene Angaben in '+changed.length+' Feldern durch die geprüften Vorschläge ersetzen?'))return;
-  onApply(values);el('ocrStatus').textContent='Angaben ins Formular übernommen. Bitte prüfen und mit Speichern bestätigen.';
+  onApply(values);const count=Object.keys(values).length;el('ocrStatus').textContent=count+(count===1?' Angabe wurde':' Angaben wurden')+' ins Formular übernommen. Bitte prüfen und mit Speichern bestätigen.';
  };
  return {clear,recognize};
 }

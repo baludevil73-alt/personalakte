@@ -1,5 +1,6 @@
 import {prepareOcrImage} from './ocr-image.js';
 import {parseIdentityText} from './ocr-parse.js';
+import {regionValue,narcoSuggestions} from './ocr-narco.js';
 let apiPromise;
 export function loadOcrApi(){
  if(apiPromise)return apiPromise;
@@ -37,6 +38,24 @@ export function createLocalRecognizer({loadApi=loadOcrApi,prepareImage=prepareOc
      logger:message=>{if(!stopped)onProgress(message.status,Number.isFinite(message.progress)?message.progress:0);}
     });
     if(stopped){await worker.terminate();throw aborted();}
+    if(prepared.regions){
+     const results={};
+     for(const region of prepared.regions){
+      if(stopped)throw aborted();onProgress('region '+region.key,0);
+      const whitelist=region.key==='birth_date'?'0123456789./-':region.key==='identity_number'?'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789':'';
+      await worker.setParameters({tessedit_pageseg_mode:api.PSM.SINGLE_LINE ?? 7,tessedit_char_whitelist:whitelist});
+      let result=await worker.recognize(region.image);if(stopped)throw aborted();
+      if(!regionValue(region.key,result.data.text) || result.data.confidence<65){
+       await worker.setParameters({tessedit_pageseg_mode:api.PSM.RAW_LINE ?? 13,tessedit_char_whitelist:whitelist});
+       const alternative=await worker.recognize(region.image);if(stopped)throw aborted();
+       const score=value=>(regionValue(region.key,value.data.text)?1000:0)+(value.data.confidence || 0);
+       if(score(alternative)>score(result))result=alternative;
+      }
+      results[region.key]={text:result.data.text ?? '',confidence:result.data.confidence,label:region.label};
+     }
+     prepared.release();prepared=null;
+     return {text:Object.values(results).filter(result=>result.text.trim()).map(result=>result.label+':\n'+result.text.trim()).join('\n\n'),values:narcoSuggestions(results)};
+    }
     await worker.setParameters({tessedit_pageseg_mode:api.PSM.SPARSE_TEXT,preserve_interword_spaces:'1'});
     if(stopped)throw aborted();
     let result=await worker.recognize(prepared.image);
