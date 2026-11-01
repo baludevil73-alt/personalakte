@@ -1,5 +1,10 @@
 # Narco City Akten
 
+**Aktueller Stand: Discord-Gateway.** Die nachfolgenden ursprünglichen Hinweise zu
+`nc_members`/`nc_records` sind überholt. **`database/setup.sql` nicht ausführen.**
+Die Anwendung verwendet jetzt die vorhandene Tabelle `person_files` und eine
+serverseitige Discord-Rollenprüfung. Aktuelle Einrichtung: [DISCORD_SETUP.md](DISCORD_SETUP.md).
+
 Neue Vite/JavaScript-Anwendung für das Supabase-Projekt `gplasajxitwifndxjxjf`.
 Das am 01.11.2026 abgerufene GitHub-Repository war leer (keine Remote-Refs).
 Es gab daher keinen bestehenden Code oder vorhandene Abhängigkeiten zu prüfen.
