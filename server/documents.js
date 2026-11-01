@@ -24,16 +24,32 @@ export function makeDocumentsHandler({getClient,fetcher,cacheFor}) {
   res.setHeader('Cache-Control','no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
   try {
-   if(!['GET','POST'].includes(req.method)) {res.setHeader('Allow','GET, POST');throw new AccessError(405,'Methode nicht erlaubt.');}
+   if(!['GET','POST','DELETE'].includes(req.method)) {res.setHeader('Allow','GET, POST, DELETE');throw new AccessError(405,'Methode nicht erlaubt.');}
    if(req.headers.origin && req.headers.origin !== 'https://narco-city-akten.vercel.app') throw new AccessError(403,'Anfrage nicht erlaubt.');
    const db=getClient();
    const jwt=/^Bearer ([^\s]+)$/.exec(req.headers.authorization ?? '')?.[1];
    const access=await authorize({jwt,providerToken:req.headers['x-discord-token'],auth:db.auth,fetcher,cache:cacheFor?.(db)});
+   if(req.method==='DELETE' && access.role!=='editor') throw new AccessError(403,'Zum Löschen ist Akte 2 erforderlich.');
    for(const functionName of ['nc_gateway_ready','nc_documents_ready']) {
     const ready=await db.rpc(functionName);
     if(ready.error || ready.data !== true) throw new AccessError(503,'Die sichere Dokumentablage ist noch nicht eingerichtet.');
    }
    const storage=db.storage.from(bucket);
+   if(req.method==='DELETE') {
+    const documentId=req.query?.document_id;
+    if(!uuid(documentId)) throw new AccessError(400,'Ungültige Dokumentreferenz.');
+    const prepared=await db.rpc('nc_document_delete_prepare',{p_document_id:documentId,p_actor:access.userId});
+    if(prepared.error) throw new AccessError(503,'Die Löschfunktion ist noch nicht eingerichtet oder das Protokoll nicht erreichbar. Es wurde keine Datei gelöscht.');
+    if(!prepared.data) throw new AccessError(404,'Dokument nicht gefunden. Bitte die Liste neu laden.');
+    const path=prepared.data.storage_path;
+    if(typeof path!=='string' || !path) throw new Error('invalid database reference');
+    const removed=await storage.remove([path]);
+    if(removed.error) throw new AccessError(503,'Die Bilddatei konnte nicht gelöscht werden. Bitte erneut versuchen.');
+    const finished=await db.rpc('nc_document_delete_finish',{p_document_id:documentId,p_actor:access.userId,p_expected_path:path});
+    if(finished.error) throw new AccessError(503,'Die Bilddatei wurde entfernt, der Dokumenteintrag konnte aber nicht abgeschlossen werden. Bitte die Liste neu laden und das Löschen erneut versuchen.');
+    // Bei zwei gleichzeitigen Löschversuchen kann der andere bereits abgeschlossen sein.
+    return res.status(200).json({ok:true});
+   }
    if(req.method==='POST') {
     if(access.role !== 'editor') throw new AccessError(403,'Zum Hochladen ist Akte 2 erforderlich.');
     const input=uploadInput(req.body);

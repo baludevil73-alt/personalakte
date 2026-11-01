@@ -2,3 +2,5 @@
 select{display:block;width:100%;margin-top:8px;padding:12px;background:#101d24;border:1px solid #3b515b;border-radius:4px;color:#fff;font:inherit}.documents{margin-top:24px;border-top:1px solid #3b515b;padding-top:16px}.documents button{margin:8px 8px 8px 0}.documents form{margin:16px 0}
 .field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 20px}.record-details{display:grid;grid-template-columns:minmax(110px,160px) minmax(0,1fr);gap:6px 16px}.record-details dt{color:#a8b9bd}.record-details dd{margin:0;overflow-wrap:anywhere}@media(max-width:600px){.field-grid{grid-template-columns:1fr}.record-details{grid-template-columns:1fr;gap:2px}.record-details dd{margin-bottom:10px}}
 .document-entry{padding:14px 0;border-bottom:1px solid #2a3a43}.image-preview{margin:16px 0;padding:12px;background:#0d1419;border-radius:6px}.image-preview img{display:block;max-width:100%;max-height:70vh;width:auto;height:auto;margin:auto;object-fit:contain}
+.documents button.danger{background:#572a2e;color:#ffd9dc}.documents button.danger:hover{background:#74383e}
+article button.danger{background:#572a2e;color:#ffd9dc}article button.danger:hover{background:#74383e}

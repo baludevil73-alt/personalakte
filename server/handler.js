@@ -1,10 +1,11 @@
 import {AccessError,authorize,recordInput} from './access.js';
+import {deleteRecord} from './delete-record.js';
 const fields = 'id,first_name,last_name,birth_date,gender,height_cm,identity_number,notes,updated_at';
 export function makeHandler({getClient,fetcher,cacheFor}) {
  return async function handler(req,res) {
   res.setHeader('Cache-Control','no-store');
   try {
-   if(!['GET','POST','PATCH'].includes(req.method)) {res.setHeader('Allow','GET, POST, PATCH');throw new AccessError(405,'Methode nicht erlaubt.');}
+   if(!['GET','POST','PATCH','DELETE'].includes(req.method)) {res.setHeader('Allow','GET, POST, PATCH, DELETE');throw new AccessError(405,'Methode nicht erlaubt.');}
    if(req.headers.origin && req.headers.origin !== 'https://narco-city-akten.vercel.app') throw new AccessError(403,'Anfrage nicht erlaubt.');
    const db = getClient();
    const jwt = /^Bearer ([^\s]+)$/.exec(req.headers.authorization ?? '')?.[1];
@@ -18,6 +19,10 @@ export function makeHandler({getClient,fetcher,cacheFor}) {
     return res.status(200).json({role:access.role,records:data});
    }
    if(access.role !== 'editor') throw new AccessError(403,'Die Rolle Akte 2 ist zum Bearbeiten erforderlich.');
+   if(req.method==='DELETE') {
+    await deleteRecord({db,recordId:req.query?.record_id,actor:access.userId});
+    return res.status(200).json({ok:true});
+   }
    const body = req.body;
    if(Buffer.byteLength(JSON.stringify(body ?? {})) > 100000) throw new AccessError(413,'Eingabe zu groß.');
    const payload = recordInput(body);

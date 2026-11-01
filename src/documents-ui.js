@@ -17,6 +17,7 @@ export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}
   list.replaceChildren();
   if(!data.documents.length) list.textContent='Noch keine Dokumente vorhanden.';
   for(const item of data.documents) {
+   let deleting=false,removed=false;
    const row=document.createElement('div');row.className='document-entry';
    const name=document.createElement('span');name.textContent=(labels[item.kind] ?? 'Dokument')+' · '+new Date(item.created_at).toLocaleDateString('de-DE')+' ';
    const download=document.createElement('button');download.type='button';download.textContent='Herunterladen';
@@ -24,16 +25,30 @@ export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}
     download.disabled=true;
     try {
      const blob=await api('GET',undefined,'/api/documents?document_id='+encodeURIComponent(item.id),true);
-     if(!current()) return;
+     if(!current() || deleting || removed) return;
      const url=URL.createObjectURL(blob),link=document.createElement('a');
      const ext={'image/png':'png','image/jpeg':'jpg','image/webp':'webp'}[blob.type] ?? 'bin';
      link.href=url;link.download='dokument-'+item.id+'.'+ext;link.click();
      setTimeout(()=>URL.revokeObjectURL(url),1000);
     } catch(error){onError(error.message);}finally{download.disabled=false;}
    };
-   const preview=createImagePreview({label:labels[item.kind] ?? 'Dokument',isCurrent:current,onError,
+   const preview=createImagePreview({label:labels[item.kind] ?? 'Dokument',isCurrent:()=>current() && !deleting && !removed,onError,
     load:()=>api('GET',undefined,'/api/documents?document_id='+encodeURIComponent(item.id),true)});
    previews.push(preview);row.append(name,preview.button,download,preview.view);list.append(row);
+   if(canUpload) {
+    const remove=document.createElement('button');remove.type='button';remove.textContent='Bild löschen';remove.className='danger';
+    remove.onclick=async()=>{
+     if(!confirm((labels[item.kind] ?? 'Bild')+' endgültig löschen? Die Datei wird sofort entfernt. Es gibt keinen Papierkorb.')) return;
+     deleting=true;preview.clear();remove.disabled=true;download.disabled=true;preview.button.disabled=true;remove.textContent='Wird gelöscht …';
+     try {
+      await api('DELETE',undefined,'/api/documents?document_id='+encodeURIComponent(item.id));
+      removed=true;preview.clear();row.remove();
+      if(current() && !list.children.length) list.textContent='Noch keine Dokumente vorhanden.';
+     }catch(error){onError(error.message);}
+     finally{deleting=false;remove.disabled=false;download.disabled=false;preview.button.disabled=false;remove.textContent='Bild löschen';}
+    };
+    row.insertBefore(remove,preview.view);
+   }
   }
  }
  toggle.onclick=async()=>{

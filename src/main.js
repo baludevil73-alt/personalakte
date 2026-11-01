@@ -39,6 +39,15 @@ function render() {
     if (canEdit(role)) {
       const edit = document.createElement('button'); edit.textContent = 'Bearbeiten';
       edit.onclick = () => openEditor(record); article.append(edit);
+      const remove=document.createElement('button');remove.type='button';remove.className='danger';remove.textContent='Akte löschen';
+      remove.onclick=async()=>{
+        const name=[record.first_name,record.last_name].filter(Boolean).join(' ');
+        if(!confirm('Akte „'+name+'“ und ALLE zugehörigen Bilder endgültig löschen? Es gibt keinen Papierkorb.')) return;
+        remove.disabled=true;
+        try{await api('DELETE',undefined,'/api/records?record_id='+encodeURIComponent(record.id));await load();}
+        catch(error){status(error.message);}finally{remove.disabled=false;}
+      };
+      article.append(remove);
     }
     el('records').append(article);
     documentCleanups.push(attachDocuments(article,record,{api,canUpload:canEdit(role),onError:status,isCurrent:()=>turn===generation}));
