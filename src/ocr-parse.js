@@ -23,14 +23,32 @@ export function parseIdentityText(text){
    let value=match[1].trim();
    if(!value && lines[index+1] && !anyLabel.test(lines[index+1]))value=lines[index+1];
    value=value.split(new RegExp('\\s+(?=(?:'+Object.values(labels).join('|')+')\\s*:)','i'))[0].trim();
-   if(field==='birth_date')value=dateValue(value);
+   if(field==='birth_date'){
+    value=/G[ÜU]LTIG|EXPIR|VALID|ISSUED|AUSGESTELLT|ABLAUF/i.test(value)?'':dateValue(value);
+    if(!value)for(let next=index+1;next<=Math.min(index+3,lines.length-1);next++){if(/G[ÜU]LTIG|EXPIR|VALID|ISSUED|AUSGESTELLT|ABLAUF/i.test(lines[next]))break;value=dateValue(lines[next]);if(value)break;}
+   }
    else if(field==='identity_number'){
     value=value.replace(/\s+/g,'');if(!/^[A-Za-z0-9][A-Za-z0-9/-]{1,159}$/.test(value))value='';
    }else{
     value=value.replace(/^["'“”]+|["'“”]+$/g,'').trim();
-    if(value.length>160 || !/^[\p{L}\p{M}][\p{L}\p{M} .'’\-]*$/u.test(value))value='';
+    if(value.length>160 || /\b(?:SURNAME|GIVEN|PR[ÉE]NOMS?|NAISSANCE|DATE|BIRTH|NOM|NAME|VORNAME|NACHNAME)\b/i.test(value) || !/^[\p{L}\p{M}][\p{L}\p{M} .'’\-]*$/u.test(value))value='';
    }
    if(value){values[field]=value;break;}
+  }
+ }
+ // Gezeigte Narco-City-Karte: kombinierte Namenszeile und Nummer SV + acht Ziffern.
+ const card=lines.some(line=>/NARCO\s*CITY|GIVEN\s*NAMES|PR[ÉE]NOMS|SURNAME|DATE\s*DE\s*NAISSANCE/i.test(line));
+ if(card){
+  if(!values.identity_number){const number=text.toUpperCase().match(/\bSV[0-9OIl]{8}\b/i);if(number)values.identity_number=number[0].toUpperCase().replace(/O/g,'0').replace(/[IL]/g,'1');}
+  if(!values.last_name){
+   const index=lines.findIndex(line=>/VORNAME|GIVEN\s*NAMES|PR[ÉE]NOMS/i.test(line));
+   if(index>=0){
+    for(const line of lines.slice(index+1,index+4)){
+     if(/GEBURT|BIRTH|NAISSANCE|GESCHLECHT|GR[ÖO]SSE|SURNAME|VORNAME|GIVEN|SIGNATURE|UNTERSCHRIFT/i.test(line))continue;
+     const names=line.match(/^([\p{L}\p{M}][\p{L}\p{M}'’.-]*)\s+([\p{L}\p{M}][\p{L}\p{M}'’.-]*)$/u);
+     if(names && (!values.first_name || values.first_name===line)){values.first_name=names[1];values.last_name=names[2];break;}
+    }
+   }
   }
  }
  return values;
