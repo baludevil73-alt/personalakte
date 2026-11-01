@@ -1,5 +1,5 @@
 import {AccessError,authorize,recordInput} from './access.js';
-const fields = 'id,first_name,last_name,notes,updated_at';
+const fields = 'id,first_name,last_name,birth_date,gender,height_cm,identity_number,notes,updated_at';
 export function makeHandler({getClient,fetcher,cacheFor}) {
  return async function handler(req,res) {
   res.setHeader('Cache-Control','no-store');

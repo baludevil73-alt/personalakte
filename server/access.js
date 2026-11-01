@@ -87,5 +87,29 @@ export function recordInput(input) {
   const first_name = input.first_name.trim(), last_name = input.last_name.trim();
   if (!(first_name || last_name) || first_name.length > 160 || last_name.length > 160 || input.notes.length > 20000)
     throw new AccessError(400,'Mindestens einen Namen eintragen; maximal 160 Zeichen je Name und 20.000 Zeichen Notizen.');
-  return {first_name,last_name,notes:input.notes};
+  const result={first_name,last_name,notes:input.notes};
+  // Fehlende Felder bei älteren Clients nicht überschreiben; leer löscht gezielt.
+  for(const field of ['gender','identity_number']) {
+    if(!Object.hasOwn(input,field)) continue;
+    if(input[field]!==null && typeof input[field]!=='string') throw new AccessError(400,'Geschlecht und Ausweisnummer müssen Text sein.');
+    const value=input[field]?.trim() || null;
+    if(value && value.length>(field==='gender'?80:160)) throw new AccessError(400,'Geschlecht: höchstens 80 Zeichen; Ausweisnummer: höchstens 160 Zeichen.');
+    result[field]=value;
+  }
+  if(Object.hasOwn(input,'height_cm')) {
+    const value=input.height_cm;
+    if(value!==null && (!Number.isInteger(value) || value<50 || value>250)) throw new AccessError(400,'Körpergröße muss eine ganze Zahl von 50 bis 250 cm sein.');
+    result.height_cm=value;
+  }
+  if(Object.hasOwn(input,'birth_date')) {
+    const value=input.birth_date;
+    if(value===null || value==='') result.birth_date=null;
+    else {
+      if(typeof value!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value.slice(0,4)==='0000') throw new AccessError(400,'Bitte ein gültiges Geburtsdatum eintragen.');
+      const date=new Date(value+'T00:00:00Z');
+      if(!Number.isFinite(date.getTime()) || date.toISOString().slice(0,10)!==value) throw new AccessError(400,'Bitte ein gültiges Geburtsdatum eintragen.');
+      result.birth_date=value;
+    }
+  }
+  return result;
 }

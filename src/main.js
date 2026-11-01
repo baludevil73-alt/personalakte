@@ -1,10 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { canEdit } from './policy.js';
 import { attachDocuments } from './documents-ui.js';
+import { detailsForm, detailsPayload, recordDetails, matchesRecord } from './record-fields.js';
 import './style.css';
 
 const root = document.querySelector('#app');
-root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><button id="retry" hidden>Erneut versuchen</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name eingeben"></label><button id="new" hidden>Neue Akte</button></div><p id="count"></p><div id="records"></div><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2><label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label><label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form></section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
+root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><button id="retry" hidden>Erneut versuchen</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name oder Ausweisnummer eingeben"></label><button id="new" hidden>Neue Akte</button></div><p id="count"></p><div id="records"></div><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2><label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label>${detailsForm}<label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form></section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
 const el = id => document.getElementById(id);
 const status = message => { el('status').textContent = message; };
 const url = import.meta.env.VITE_SUPABASE_URL;
@@ -19,13 +20,18 @@ function clear() {
 function render() {
   const turn = generation;
   el('records').replaceChildren();
-  const filtered = records.filter(r => [r.first_name,r.last_name].filter(Boolean).join(' ').toLocaleLowerCase('de').includes(el('search').value.toLocaleLowerCase('de')));
+  const filtered = records.filter(r => matchesRecord(r,el('search').value));
   el('count').textContent = `${filtered.length} Akten angezeigt (maximal 200 geladen)`;
   for (const record of filtered) {
     const article = document.createElement('article');
     const title = document.createElement('h2'); title.textContent = [record.first_name,record.last_name].filter(Boolean).join(' ');
     const notes = document.createElement('p'); notes.className = 'notes'; notes.textContent = record.notes;
-    article.append(title, notes);
+    const details=document.createElement('dl');details.className='record-details';
+    for(const [label,value] of recordDetails(record)) {
+      const term=document.createElement('dt'),description=document.createElement('dd');
+      term.textContent=label;description.textContent=String(value);details.append(term,description);
+    }
+    article.append(title, details, notes);
     if (canEdit(role)) {
       const edit = document.createElement('button'); edit.textContent = 'Bearbeiten';
       edit.onclick = () => openEditor(record); article.append(edit);
@@ -38,6 +44,7 @@ function openEditor(record) {
   editing = record; el('editor').hidden = false;
   el('formtitle').textContent = record ? 'Akte bearbeiten' : 'Neue Akte';
   el('first_name').value = record?.first_name ?? ''; el('last_name').value = record?.last_name ?? ''; el('notes').value = record?.notes ?? ''; el('first_name').focus();
+  for(const field of ['birth_date','gender','height_cm','identity_number']) el(field).value=record?.[field] ?? '';
 }
 async function load() {
   clear(); const turn = generation;
@@ -65,6 +72,7 @@ el('editor').onsubmit = async event => {
   try {
     await api(editing ? 'PATCH' : 'POST',{
       first_name:el('first_name').value,last_name:el('last_name').value,notes:el('notes').value,
+      ...detailsPayload(field=>el(field).value),
       ...(editing ? {id:editing.id,updated_at:editing.updated_at} : {})
     });
     await load();
@@ -91,7 +99,7 @@ async function api(method,body,path='/api/records',download=false) {
   if(response.ok && download) return response.blob();
   const result = await response.json();
   if(!response.ok) {
-    clear(); el('logout').hidden = false;
+    if([401,403,503].includes(response.status)) {clear();el('logout').hidden=false;}
     if(Number.isFinite(result.retryAfter) && result.retryAfter>0) {
       retryUntil=Date.now()+Math.ceil(result.retryAfter)*1000;
       sessionStorage.setItem('nc_retry_until',String(retryUntil));showRetry();
