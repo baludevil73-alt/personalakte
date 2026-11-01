@@ -1,11 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import { canEdit } from './policy.js';
 import { attachDocuments } from './documents-ui.js';
+import {auditMarkup,createAuditView} from './audit-ui.js';
 import { detailsForm, detailsPayload, recordDetails, matchesRecord, setDetailValue } from './record-fields.js';
 import './style.css';
 
 const root = document.querySelector('#app');
-root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><button id="retry" hidden>Erneut versuchen</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name oder Ausweisnummer eingeben"></label><button id="new" hidden>Neue Akte</button></div><p id="count"></p><div id="records"></div><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2><label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label>${detailsForm}<label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form></section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
+root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><button id="retry" hidden>Erneut versuchen</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name oder Ausweisnummer eingeben"></label><button id="new" hidden>Neue Akte</button><button id="auditToggle" type="button" hidden>Änderungsprotokoll</button></div><p id="count"></p><div id="records"></div><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2><label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label>${detailsForm}<label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form>${auditMarkup}</section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
 const el = id => document.getElementById(id);
 const status = message => { el('status').textContent = message; };
 const url = import.meta.env.VITE_SUPABASE_URL;
@@ -13,12 +14,14 @@ const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 let db, role, records = [], editing = null, generation = 0;
 let retryUntil = Number(sessionStorage.getItem('nc_retry_until')) || 0;
 let documentCleanups=[];
+const auditView=createAuditView({api,getRecords:()=>records,isAllowed:()=>role==='editor',onError:status});
 function clearDocumentPreviews(){for(const dispose of documentCleanups)dispose();documentCleanups=[];}
 function clear() {
+  auditView.clear();
   clearDocumentPreviews();
   generation++; role = null; records = []; editing = null;
   el('records').replaceChildren(); el('editor').reset();
-  for (const id of ['workspace','editor','new','logout','retry']) el(id).hidden = true;
+  for (const id of ['workspace','editor','new','logout','retry','auditToggle']) el(id).hidden = true;
 }
 function render() {
   clearDocumentPreviews();
@@ -71,6 +74,7 @@ async function load() {
     if(turn !== generation) return;
     role = result.role; records = result.records;
     el('workspace').hidden = false; el('new').hidden = !canEdit(role);
+    el('auditToggle').hidden=role!=='editor';
     status(role === 'editor' ? 'Discord-Rolle geprüft · Lesen und Bearbeiten' : 'Discord-Rolle geprüft · Nur Lesen'); render();
   } catch(error) {
     if(turn !== generation) return;
