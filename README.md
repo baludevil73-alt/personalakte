@@ -1,5 +1,9 @@
 # Narco City Akten
 
+**Private Bilder:** Die neue Dokumentfunktion wird über
+[DOCUMENTS_SETUP.md](DOCUMENTS_SETUP.md) eingerichtet. Sie baut auf dem
+Discord-Gateway auf und verwendet das zusätzliche `database/documents-gateway.sql`.
+
 **Aktueller Stand: Discord-Gateway.** Die nachfolgenden ursprünglichen Hinweise zu
 `nc_members`/`nc_records` sind überholt. **`database/setup.sql` nicht ausführen.**
 Die Anwendung verwendet jetzt die vorhandene Tabelle `person_files` und eine

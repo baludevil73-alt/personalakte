@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { canEdit } from './policy.js';
+import { attachDocuments } from './documents-ui.js';
 import './style.css';
 
 const root = document.querySelector('#app');
@@ -15,6 +16,7 @@ function clear() {
   for (const id of ['workspace','editor','new','logout']) el(id).hidden = true;
 }
 function render() {
+  const turn = generation;
   el('records').replaceChildren();
   const filtered = records.filter(r => [r.first_name,r.last_name].filter(Boolean).join(' ').toLocaleLowerCase('de').includes(el('search').value.toLocaleLowerCase('de')));
   el('count').textContent = `${filtered.length} Akten angezeigt (maximal 200 geladen)`;
@@ -28,6 +30,7 @@ function render() {
       edit.onclick = () => openEditor(record); article.append(edit);
     }
     el('records').append(article);
+    attachDocuments(article,record,{api,canUpload:canEdit(role),onError:status,isCurrent:()=>turn===generation});
   }
 }
 function openEditor(record) {
@@ -66,14 +69,15 @@ el('editor').onsubmit = async event => {
     await load();
   } catch(error) { status(error.message); } finally { button.disabled = false; }
 };
-async function api(method,body) {
+async function api(method,body,path='/api/records',download=false) {
   const {data:{session}} = await db.auth.getSession();
   const providerToken = sessionStorage.getItem('nc_discord_access');
   if(!session || !providerToken) throw new Error('Bitte abmelden und erneut mit Discord anmelden, um die Rollenprüfung zu erlauben.');
-  const response = await fetch('/api/records',{
+  const response = await fetch(path,{
     method,headers:{Authorization:'Bearer '+session.access_token,'X-Discord-Token':providerToken,'Content-Type':'application/json'},
     ...(body ? {body:JSON.stringify(body)} : {}),cache:'no-store'
   });
+  if(response.ok && download) return response.blob();
   const result = await response.json();
   if(!response.ok) {
     clear(); el('logout').hidden = false;
