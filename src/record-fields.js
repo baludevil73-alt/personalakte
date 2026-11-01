@@ -1,4 +1,19 @@
-export const detailsForm = `<div class="field-grid"><label>Geburtsdatum<input id="birth_date" type="date" min="0001-01-01" max="9999-12-31"></label><label>Geschlecht<input id="gender" maxlength="80" autocomplete="off" placeholder="Optional"></label><label>Körpergröße in cm<input id="height_cm" type="number" min="50" max="250" step="1" placeholder="50–250"></label><label>Ausweisnummer<input id="identity_number" maxlength="160" autocomplete="off" placeholder="Optional"></label></div>`;
+const heightOptions = Array.from({length:201},(_,index)=>{
+ const cm=index+50;return `<option value="${cm}">${cm} cm</option>`;
+}).join('');
+export const detailsForm = `<div class="field-grid"><label>Geburtsdatum<input id="birth_date" type="date" min="0001-01-01" max="9999-12-31"></label><label>Geschlecht<select id="gender"><option value="">Keine Angabe</option><option value="Männlich">Männlich</option><option value="Weiblich">Weiblich</option><option value="Divers">Divers</option></select></label><label>Körpergröße<select id="height_cm"><option value="">Keine Angabe</option>${heightOptions}</select></label><label>Ausweisnummer<input id="identity_number" maxlength="160" autocomplete="off" placeholder="Optional"></label></div>`;
+export function setDetailValue(control,value) {
+ const saved=value==null?'':String(value);
+ if(control.tagName==='SELECT') {
+  for(const option of [...control.options]) if(option.dataset.saved==='true') option.remove();
+  // Frühere Freitextangaben nicht durch einen leeren Auswahlwert verlieren.
+  if(saved && ![...control.options].some(option=>option.value===saved)) {
+   const option=control.ownerDocument.createElement('option');
+   option.value=saved;option.textContent=saved+' (gespeichert)';option.dataset.saved='true';control.append(option);
+  }
+ }
+ control.value=saved;
+}
 export function detailsPayload(getValue) {
  return {
   birth_date:getValue('birth_date') || null,

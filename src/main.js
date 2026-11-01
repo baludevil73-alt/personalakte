@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { canEdit } from './policy.js';
 import { attachDocuments } from './documents-ui.js';
-import { detailsForm, detailsPayload, recordDetails, matchesRecord } from './record-fields.js';
+import { detailsForm, detailsPayload, recordDetails, matchesRecord, setDetailValue } from './record-fields.js';
 import './style.css';
 
 const root = document.querySelector('#app');
@@ -44,7 +44,7 @@ function openEditor(record) {
   editing = record; el('editor').hidden = false;
   el('formtitle').textContent = record ? 'Akte bearbeiten' : 'Neue Akte';
   el('first_name').value = record?.first_name ?? ''; el('last_name').value = record?.last_name ?? ''; el('notes').value = record?.notes ?? ''; el('first_name').focus();
-  for(const field of ['birth_date','gender','height_cm','identity_number']) el(field).value=record?.[field] ?? '';
+  for(const field of ['birth_date','gender','height_cm','identity_number']) setDetailValue(el(field),record?.[field]);
 }
 async function load() {
   clear(); const turn = generation;
