@@ -42,7 +42,7 @@ export function createLocalRecognizer({loadApi=loadOcrApi,prepareImage=prepareOc
      const results={};
      for(const region of prepared.regions){
       if(stopped)throw aborted();onProgress('region '+region.key,0);
-      const whitelist=region.key==='birth_date'?'0123456789./-':region.key==='identity_number'?'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789':'';
+      const whitelist=region.key==='birth_date'?'0123456789./-':region.key==='height_cm'?'0123456789':region.key==='identity_number'?'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789':'';
       await worker.setParameters({tessedit_pageseg_mode:api.PSM.SINGLE_LINE ?? 7,tessedit_char_whitelist:whitelist});
       let result=await worker.recognize(region.image);if(stopped)throw aborted();
       if(!regionValue(region.key,result.data.text) || result.data.confidence<65){
@@ -61,7 +61,7 @@ export function createLocalRecognizer({loadApi=loadOcrApi,prepareImage=prepareOc
     let result=await worker.recognize(prepared.image);
     if(stopped)throw aborted();
     // Dünne Beschriftungen und Kartenlayouts werden oft mit einem Textblock besser erkannt.
-    if(Object.keys(parseIdentityText(result.data.text ?? '')).length<4){
+    if(Object.keys(parseIdentityText(result.data.text ?? '')).length<6){
      onProgress('second pass',0);
      await worker.setParameters({tessedit_pageseg_mode:prepared.alternate?api.PSM.SPARSE_TEXT:api.PSM.SINGLE_BLOCK ?? 6,preserve_interword_spaces:'1'});
      if(stopped)throw aborted();

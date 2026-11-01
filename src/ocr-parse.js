@@ -2,7 +2,8 @@ const labels={
  first_name:'(?:Vorname(?:n)?|First\\s*name|Given\\s*names?)',
  last_name:'(?:Nachname|Familienname|Surname|Last\\s*name)',
  birth_date:'(?:Geburtsdatum|Geburtstag|Geboren(?:\\s+am)?|Date\\s+of\\s+birth|DOB)',
- identity_number:'(?:Ausweis(?:nummer|[- ]?Nr\\.?)|Dokument(?:en)?nummer|Identit[aä]tsnummer|ID[- ]?(?:Nummer|No\\.?|Number)|Document\\s+(?:No\\.?|Number))'
+ identity_number:'(?:Ausweis(?:nummer|[- ]?Nr\\.?)|Dokument(?:en)?nummer|Identit[aä]tsnummer|ID[- ]?(?:Nummer|No\\.?|Number)|Document\\s+(?:No\\.?|Number))',
+ gender:'(?:Geschlecht|Gender|Sex)',height_cm:'(?:K[oö]rpergr[oö][sß]e|Gr[oö][sß]e|Groesse|Height)'
 };
 const anyLabel=new RegExp('^\\s*(?:'+Object.values(labels).join('|')+')\\s*[:|]?\\s*$','i');
 function dateValue(value){
@@ -29,6 +30,10 @@ export function parseIdentityText(text){
    }
    else if(field==='identity_number'){
     value=value.replace(/\s+/g,'');if(!/^[A-Za-z0-9][A-Za-z0-9/-]{1,159}$/.test(value))value='';
+   }else if(field==='gender'){
+    value=/^(?:FEMALE|WEIBLICH|F|W)$/i.test(value)?'Weiblich':/^(?:MALE|M[ÄA]NNLICH|M)$/i.test(value)?'Männlich':/^(?:DIVERS|D)$/i.test(value)?'Divers':'';
+   }else if(field==='height_cm'){
+    const match=value.match(/^(\d{2,3})(?:\s*cm)?$/i);value=match&&Number(match[1])>=50&&Number(match[1])<=250?Number(match[1]):'';
    }else{
     value=value.replace(/^["'“”]+|["'“”]+$/g,'').trim();
     if(value.length>160 || /\b(?:SURNAME|GIVEN|PR[ÉE]NOMS?|NAISSANCE|DATE|BIRTH|NOM|NAME|VORNAME|NACHNAME)\b/i.test(value) || !/^[\p{L}\p{M}][\p{L}\p{M} .'’\-]*$/u.test(value))value='';
