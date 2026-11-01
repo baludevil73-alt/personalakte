@@ -2,8 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import { canEdit } from './policy.js';
 import { attachDocuments } from './documents-ui.js';
 import {auditMarkup,createAuditView} from './audit-ui.js';
-import { detailsForm, detailsPayload, recordDetails, matchesRecord, setDetailValue } from './record-fields.js';
+import { detailsForm, detailsPayload, matchesRecord, setDetailValue } from './record-fields.js';
 import {renderRecordList} from './record-list.js';
+import {createRecordSheet} from './record-sheet.js';
 import './style.css';
 
 const root = document.querySelector('#app');
@@ -56,18 +57,10 @@ async function openRecord(id) {
 }
 function renderDetail(record) {
   clearDocumentPreviews();const turn=generation,view=viewVersion;
-    const article = document.createElement('article');
-    const title = document.createElement('h2'); title.textContent = [record.first_name,record.last_name].filter(Boolean).join(' ');
-    const notes = document.createElement('p'); notes.className = 'notes'; notes.textContent = record.notes;
-    const details=document.createElement('dl');details.className='record-details';
-    for(const [label,value] of recordDetails(record)) {
-      const term=document.createElement('dt'),description=document.createElement('dd');
-      term.textContent=label;description.textContent=String(value);details.append(term,description);
-    }
-    article.append(title, details, notes);
+    const {article,actions}=createRecordSheet(record);
     if (canEdit(role)) {
       const edit = document.createElement('button'); edit.textContent = 'Bearbeiten';
-      edit.onclick = () => openEditor(record); article.append(edit);
+      edit.onclick = () => openEditor(record); actions.append(edit);
       const remove=document.createElement('button');remove.type='button';remove.className='danger';remove.textContent='Akte löschen';
       remove.onclick=async()=>{
         const name=[record.first_name,record.last_name].filter(Boolean).join(' ');
@@ -76,7 +69,7 @@ function renderDetail(record) {
         try{await api('DELETE',undefined,'/api/records?record_id='+encodeURIComponent(record.id));await load();}
         catch(error){status(error.message);}finally{remove.disabled=false;}
       };
-      article.append(remove);
+      actions.append(remove);
     }
     el('recordContent').replaceChildren(article);
     documentCleanups.push(attachDocuments(article,record,{api,canUpload:canEdit(role),onError:status,isCurrent:()=>turn===generation && view===viewVersion}));

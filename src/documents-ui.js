@@ -1,22 +1,31 @@
 import {createImagePreview} from './image-preview.js';
 const labels={profile:'Profilbild',identity:'Ausweis',driver_license:'Führerschein',firearm_license:'Waffenschein',other:'Sonstiges'};
 export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}) {
- const toggle=document.createElement('button');toggle.textContent='Dokumente';
- const panel=document.createElement('section');panel.hidden=true;panel.className='documents';
- const list=document.createElement('div');
- const heading=document.createElement('h3');heading.textContent='Bilder und Dokumente';panel.append(heading,list);
+ const toggle=document.createElement('button');toggle.textContent='Galerie ausblenden';toggle.className='gallery-toggle';
+ const panel=document.createElement('section');panel.hidden=false;panel.className='documents';
+ const list=document.createElement('div');list.className='document-grid';
+ const navigation=document.createElement('nav');navigation.className='gallery-pagination';navigation.setAttribute('aria-label','Bildergalerie Seiten');
+ const heading=document.createElement('h3');heading.className='section-title';heading.textContent='Bilder und Dokumente';panel.append(heading,list,navigation);
  article.append(toggle,panel);
  const current=()=>article.isConnected && !panel.hidden && isCurrent();
  let previews=[];
- const clearPreviews=()=>{for(const preview of previews) preview.clear();previews=[];};
+ let documents=[],page=0,galleryVersion=0;
+ const clearPreviews=()=>{galleryVersion++;for(const preview of previews) preview.clear();previews=[];};
  async function refresh() {
   clearPreviews();
   list.textContent='Dokumente werden geladen …';
   const data=await api('GET',undefined,'/api/documents?file_id='+encodeURIComponent(record.id));
   if(!current()) return;
+  const order=Object.keys(labels);
+  documents=data.documents.sort((a,b)=>order.indexOf(a.kind)-order.indexOf(b.kind));page=0;
+  drawGallery();
+ }
+ function drawGallery(){
+  clearPreviews();const draw=++galleryVersion;
   list.replaceChildren();
-  if(!data.documents.length) list.textContent='Noch keine Dokumente vorhanden.';
-  for(const item of data.documents) {
+  navigation.replaceChildren();
+  if(!documents.length) list.textContent='Noch keine Bilder hinterlegt.';
+  for(const item of documents.slice(page*6,page*6+6)) {
    let deleting=false,removed=false;
    const row=document.createElement('div');row.className='document-entry';
    const name=document.createElement('span');name.textContent=(labels[item.kind] ?? 'Dokument')+' · '+new Date(item.created_at).toLocaleDateString('de-DE')+' ';
@@ -34,7 +43,8 @@ export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}
    };
    const preview=createImagePreview({label:labels[item.kind] ?? 'Dokument',isCurrent:()=>current() && !deleting && !removed,onError,
     load:()=>api('GET',undefined,'/api/documents?document_id='+encodeURIComponent(item.id),true)});
-   previews.push(preview);row.append(name,preview.button,download,preview.view);list.append(row);
+   const controls=document.createElement('div');controls.className='document-actions';controls.append(preview.button,download);
+   previews.push(preview);row.append(name,preview.view,controls);list.append(row);
    if(canUpload) {
     const remove=document.createElement('button');remove.type='button';remove.textContent='Bild löschen';remove.className='danger';
     remove.onclick=async()=>{
@@ -42,21 +52,31 @@ export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}
      deleting=true;preview.clear();remove.disabled=true;download.disabled=true;preview.button.disabled=true;remove.textContent='Wird gelöscht …';
      try {
       await api('DELETE',undefined,'/api/documents?document_id='+encodeURIComponent(item.id));
-      removed=true;preview.clear();row.remove();
-      if(current() && !list.children.length) list.textContent='Noch keine Dokumente vorhanden.';
+      removed=true;preview.clear();documents=documents.filter(document=>document.id!==item.id);page=Math.min(page,Math.max(0,Math.ceil(documents.length/6)-1));
+      if(current())drawGallery();
      }catch(error){onError(error.message);}
      finally{deleting=false;remove.disabled=false;download.disabled=false;preview.button.disabled=false;remove.textContent='Bild löschen';}
     };
-    row.insertBefore(remove,preview.view);
+    controls.append(remove);
    }
   }
+  if(documents.length>6){
+   const previous=document.createElement('button'),next=document.createElement('button'),position=document.createElement('span');
+   previous.type=next.type='button';previous.textContent='← Zurück';next.textContent='Weitere Bilder →';
+   previous.disabled=page===0;next.disabled=(page+1)*6>=documents.length;position.textContent=(page*6+1)+'–'+Math.min(page*6+6,documents.length)+' von '+documents.length;
+   previous.onclick=()=>{page--;drawGallery();};next.onclick=()=>{page++;drawGallery();};navigation.append(previous,position,next);
+  }
+  const visible=[...previews];
+  void(async()=>{for(const preview of visible){if(!current() || draw!==galleryVersion)return;await preview.autoOpen();}})();
  }
  toggle.onclick=async()=>{
   panel.hidden=!panel.hidden;
-  if(panel.hidden) {clearPreviews();return;}
+  toggle.textContent=panel.hidden?'Galerie anzeigen':'Galerie ausblenden';
+  if(panel.hidden) {galleryVersion++;clearPreviews();return;}
   toggle.disabled=true;
   try{await refresh();}catch(error){if(current()) list.textContent='Dokumente konnten nicht geladen werden.';onError(error.message);}finally{toggle.disabled=false;}
  };
+ queueMicrotask(()=>{if(current())refresh().catch(error=>{if(current())list.textContent='Bilder konnten nicht geladen werden.';onError(error.message);});});
  if(!canUpload) return clearPreviews;
  const form=document.createElement('form');
  const kindLabel=document.createElement('label');kindLabel.textContent='Dokumentart';
