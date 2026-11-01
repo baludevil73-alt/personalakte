@@ -4,16 +4,17 @@ import { attachDocuments } from './documents-ui.js';
 import './style.css';
 
 const root = document.querySelector('#app');
-root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name eingeben"></label><button id="new" hidden>Neue Akte</button></div><p id="count"></p><div id="records"></div><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2><label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label><label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form></section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
+root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><button id="retry" hidden>Erneut versuchen</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name eingeben"></label><button id="new" hidden>Neue Akte</button></div><p id="count"></p><div id="records"></div><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2><label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label><label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form></section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
 const el = id => document.getElementById(id);
 const status = message => { el('status').textContent = message; };
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 let db, role, records = [], editing = null, generation = 0;
+let retryUntil = Number(sessionStorage.getItem('nc_retry_until')) || 0;
 function clear() {
   generation++; role = null; records = []; editing = null;
   el('records').replaceChildren(); el('editor').reset();
-  for (const id of ['workspace','editor','new','logout']) el(id).hidden = true;
+  for (const id of ['workspace','editor','new','logout','retry']) el(id).hidden = true;
 }
 function render() {
   const turn = generation;
@@ -69,7 +70,17 @@ el('editor').onsubmit = async event => {
     await load();
   } catch(error) { status(error.message); } finally { button.disabled = false; }
 };
+function showRetry() {
+  const seconds = Math.max(0,Math.ceil((retryUntil-Date.now())/1000));
+  el('retry').hidden = false; el('retry').disabled = seconds>0;
+  el('retry').textContent = seconds>0 ? 'Erneut versuchen in '+seconds+' Sekunden' : 'Erneut versuchen';
+}
+el('retry').onclick = () => load().catch(error=>status(error.message));
+setInterval(()=>{if(!el('retry').hidden) showRetry();},1000);
 async function api(method,body,path='/api/records',download=false) {
+  if(retryUntil>Date.now()) {
+    showRetry(); throw new Error('Die vorgegebene Wartezeit läuft noch. Bitte den Countdown abwarten.');
+  }
   const {data:{session}} = await db.auth.getSession();
   const providerToken = sessionStorage.getItem('nc_discord_access');
   if(!session || !providerToken) throw new Error('Bitte abmelden und erneut mit Discord anmelden, um die Rollenprüfung zu erlauben.');
@@ -81,6 +92,10 @@ async function api(method,body,path='/api/records',download=false) {
   const result = await response.json();
   if(!response.ok) {
     clear(); el('logout').hidden = false;
+    if(Number.isFinite(result.retryAfter) && result.retryAfter>0) {
+      retryUntil=Date.now()+Math.ceil(result.retryAfter)*1000;
+      sessionStorage.setItem('nc_retry_until',String(retryUntil));showRetry();
+    }
     status(result.error || 'Zugriff verweigert.');
     throw new Error(result.error || 'Zugriff verweigert.');
   }

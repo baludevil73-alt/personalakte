@@ -19,7 +19,7 @@ export function uploadInput(body) {
  if(!bytes.length || bytes.length>maxBytes) throw new AccessError(413,'Das Bild darf höchstens 2 MiB groß sein.');
  return {bytes,...imageType(bytes),fileId:body.file_id,kind:body.kind};
 }
-export function makeDocumentsHandler({getClient,fetcher}) {
+export function makeDocumentsHandler({getClient,fetcher,cacheFor}) {
  return async function handler(req,res) {
   res.setHeader('Cache-Control','no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -28,7 +28,7 @@ export function makeDocumentsHandler({getClient,fetcher}) {
    if(req.headers.origin && req.headers.origin !== 'https://narco-city-akten.vercel.app') throw new AccessError(403,'Anfrage nicht erlaubt.');
    const db=getClient();
    const jwt=/^Bearer ([^\s]+)$/.exec(req.headers.authorization ?? '')?.[1];
-   const access=await authorize({jwt,providerToken:req.headers['x-discord-token'],auth:db.auth,fetcher});
+   const access=await authorize({jwt,providerToken:req.headers['x-discord-token'],auth:db.auth,fetcher,cache:cacheFor?.(db)});
    for(const functionName of ['nc_gateway_ready','nc_documents_ready']) {
     const ready=await db.rpc(functionName);
     if(ready.error || ready.data !== true) throw new AccessError(503,'Die sichere Dokumentablage ist noch nicht eingerichtet.');
@@ -84,7 +84,8 @@ export function makeDocumentsHandler({getClient,fetcher}) {
    if(result.error) throw new Error('database');
    return res.status(200).json({documents:result.data});
   } catch(error) {
-   return res.status(error instanceof AccessError ? error.status : 503).json({error:error instanceof AccessError ? error.message : 'Dokumentzugriff fehlgeschlagen. Bitte später erneut versuchen.'});
+   if(error.retryAfter) res.setHeader('Retry-After',String(error.retryAfter));
+   return res.status(error instanceof AccessError ? error.status : 503).json({error:error instanceof AccessError ? error.message : 'Dokumentzugriff fehlgeschlagen. Bitte später erneut versuchen.',...(error.retryAfter?{retryAfter:error.retryAfter}:{})});
   }
  };
 }

@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 export const guildId = '959404435614859264';
 export function discordRole(roles) {
   if (!Array.isArray(roles)) return null;
@@ -8,7 +9,7 @@ export function discordRole(roles) {
 export class AccessError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
-export async function authorize({jwt, providerToken, auth, fetcher = fetch, wait = ms => new Promise(resolve => setTimeout(resolve,ms))}) {
+export async function authorize({jwt, providerToken, auth, cache, fetcher = fetch, wait = ms => new Promise(resolve => setTimeout(resolve,ms))}) {
   if (!jwt || !providerToken) throw new AccessError(401,'Bitte abmelden und erneut mit Discord anmelden.');
   const {data,error} = await auth.getUser(jwt);
   const user = data?.user;
@@ -17,6 +18,19 @@ export async function authorize({jwt, providerToken, auth, fetcher = fetch, wait
   // Nur von Supabase verifizierte Provider-Identität, niemals user_metadata.
   const discordId = identity?.provider_id ?? identity?.identity_data?.sub;
   if (!discordId || !/^\d{17,20}$/.test(discordId)) throw new AccessError(403,'Discord-Identität konnte nicht bestätigt werden.');
+  const hash=createHash('sha256').update(guildId+'\0'+providerToken).digest('hex');
+  let lease;
+  if(cache) {
+    const state=await cache.acquire(user.id,hash);
+    if(state.state==='cached' && ['reader','editor'].includes(state.role)) return {userId:user.id,role:state.role};
+    if(state.state==='blocked' || state.state==='pending') {
+      const error=new AccessError(503,state.state==='blocked' ? 'Discord-Wartezeit läuft noch. Bitte später erneut versuchen. [Discord 429]' : 'Eine Rollenprüfung läuft bereits. Bitte kurz warten.');
+      error.retryAfter=Math.max(1,Math.ceil(state.retryAfter || 2));throw error;
+    }
+    if(state.state!=='claimed' || typeof state.leaseId!=='string') throw new AccessError(503,'Rollenprüfung konnte nicht gestartet werden.');
+    lease=state.leaseId;
+  }
+  try {
   const request = () => fetcher(`https://discord.com/api/v10/users/@me/guilds/${guildId}/member`, {
     headers: {Authorization:`Bearer ${providerToken}`}, signal:AbortSignal.timeout(8000)
   });
@@ -46,7 +60,8 @@ export async function authorize({jwt, providerToken, auth, fetcher = fetch, wait
   if (!response.ok) {
     if(response.status===429) {
       const delay=retryAfter===null?'etwas':Math.ceil(retryAfter)+' Sekunden';
-      throw new AccessError(503,`Discord begrenzt gerade die Rollenabfragen. Bitte ${delay} warten und erneut versuchen. [Discord 429]`);
+      const error=new AccessError(503,`Discord begrenzt gerade die Rollenabfragen. Bitte ${delay} warten und erneut versuchen. [Discord 429]`);
+      error.retryAfter=retryAfter===null?60:Math.max(1,Math.ceil(retryAfter));throw error;
     }
     if(response.status===401) throw new AccessError(401,'Die Discord-Anmeldung ist abgelaufen oder ungültig. Bitte abmelden und neu anmelden. [Discord 401]');
     if(response.status===403) throw new AccessError(403,'Discord verweigert die Rollenabfrage. Bitte erneut anmelden und die Berechtigung zum Lesen der Servermitgliedschaft erlauben. [Discord 403]');
@@ -58,7 +73,12 @@ export async function authorize({jwt, providerToken, auth, fetcher = fetch, wait
   if (member.user?.id !== discordId) throw new AccessError(403,'Discord-Konto stimmt nicht mit der Anmeldung überein.');
   const role = discordRole(member.roles);
   if (!role || member.pending === true) throw new AccessError(403,'Kein Zugriff: Auf dem Discord-Server wird die Rolle Akte oder Akte 2 benötigt.');
+  if(cache) await cache.complete(user.id,hash,lease,role);
   return {userId:user.id,role};
+  } catch(error) {
+    if(cache) await cache.complete(user.id,hash,lease,null,error.retryAfter ?? 0);
+    throw error;
+  }
 }
 export function recordInput(input) {
   if (!input || typeof input !== 'object') throw new AccessError(400,'Ungültige Eingabe.');

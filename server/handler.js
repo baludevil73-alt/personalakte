@@ -1,6 +1,6 @@
 import {AccessError,authorize,recordInput} from './access.js';
 const fields = 'id,first_name,last_name,notes,updated_at';
-export function makeHandler({getClient,fetcher}) {
+export function makeHandler({getClient,fetcher,cacheFor}) {
  return async function handler(req,res) {
   res.setHeader('Cache-Control','no-store');
   try {
@@ -8,7 +8,7 @@ export function makeHandler({getClient,fetcher}) {
    if(req.headers.origin && req.headers.origin !== 'https://narco-city-akten.vercel.app') throw new AccessError(403,'Anfrage nicht erlaubt.');
    const db = getClient();
    const jwt = /^Bearer ([^\s]+)$/.exec(req.headers.authorization ?? '')?.[1];
-   const access = await authorize({jwt,providerToken:req.headers['x-discord-token'],auth:db.auth,fetcher});
+   const access = await authorize({jwt,providerToken:req.headers['x-discord-token'],auth:db.auth,fetcher,cache:cacheFor?.(db)});
    // Kein Datenzugriff, bevor direkte Client-Zugriffe sicher gesperrt sind.
    const ready = await db.rpc('nc_gateway_ready');
    if(ready.error || ready.data !== true) throw new AccessError(503,'Die sichere Datenbankeinrichtung ist noch nicht abgeschlossen.');
@@ -34,7 +34,8 @@ export function makeHandler({getClient,fetcher}) {
    if(!data?.length) throw new AccessError(409,'Akte wurde inzwischen geändert. Bitte neu laden.');
    return res.status(200).json({ok:true});
   } catch(error) {
-   return res.status(error instanceof AccessError ? error.status : 503).json({error:error instanceof AccessError ? error.message : 'Verbindung fehlgeschlagen. Es wurden keine Daten freigegeben.'});
+   if(error.retryAfter) res.setHeader('Retry-After',String(error.retryAfter));
+   return res.status(error instanceof AccessError ? error.status : 503).json({error:error instanceof AccessError ? error.message : 'Verbindung fehlgeschlagen. Es wurden keine Daten freigegeben.',...(error.retryAfter?{retryAfter:error.retryAfter}:{})});
   }
  };
 }
