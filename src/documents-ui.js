@@ -1,6 +1,6 @@
 import {createImagePreview} from './image-preview.js';
 const labels={profile:'Profilbild',identity:'Ausweis',driver_license:'Führerschein',firearm_license:'Waffenschein',other:'Sonstiges'};
-export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}) {
+export function attachDocuments(article,record,{api,canUpload,onError,isCurrent,onRecognize}) {
  const toggle=document.createElement('button');toggle.textContent='Galerie ausblenden';toggle.className='gallery-toggle';
  const panel=document.createElement('section');panel.hidden=false;panel.className='documents';
  const list=document.createElement('div');list.className='document-grid';
@@ -45,6 +45,14 @@ export function attachDocuments(article,record,{api,canUpload,onError,isCurrent}
     load:()=>api('GET',undefined,'/api/documents?document_id='+encodeURIComponent(item.id),true)});
    const controls=document.createElement('div');controls.className='document-actions';controls.append(preview.button,download);
    previews.push(preview);row.append(name,preview.view,controls);list.append(row);
+   if(canUpload && item.kind==='identity' && onRecognize){
+    const recognize=document.createElement('button');recognize.type='button';recognize.textContent='Daten auslesen';
+    recognize.onclick=async()=>{
+     recognize.disabled=true;
+     try{const image=await api('GET',undefined,'/api/documents?document_id='+encodeURIComponent(item.id),true);if(current()&&!removed&&!deleting)await onRecognize(image);}
+     catch(error){onError(error.message);}finally{recognize.disabled=false;}
+    };controls.append(recognize);
+   }
    if(canUpload) {
     const remove=document.createElement('button');remove.type='button';remove.textContent='Bild löschen';remove.className='danger';
     remove.onclick=async()=>{

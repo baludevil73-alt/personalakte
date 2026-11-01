@@ -5,10 +5,11 @@ import {auditMarkup,createAuditView} from './audit-ui.js';
 import { detailsForm, detailsPayload, matchesRecord, setDetailValue } from './record-fields.js';
 import {renderRecordList} from './record-list.js';
 import {createRecordSheet} from './record-sheet.js';
+import {ocrMarkup,createOcrView} from './ocr-ui.js';
 import './style.css';
 
 const root = document.querySelector('#app');
-root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><button id="retry" hidden>Erneut versuchen</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name oder Ausweisnummer eingeben"></label><button id="new" hidden>Neue Akte</button><button id="auditToggle" type="button" hidden>Änderungsprotokoll</button></div><p id="count"></p><div id="records"></div><section id="recordDetail" hidden><button id="backToList" type="button">← Zur Aktenübersicht</button><div id="recordContent"></div></section><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2><label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label>${detailsForm}<label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form>${auditMarkup}</section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
+root.innerHTML = `<header><div class="brand">NC<span>NARCO CITY / VERWALTUNG</span></div><button id="logout" hidden>Abmelden</button></header><main><p class="eyebrow">GESCHÜTZTER ARBEITSBEREICH</p><h1>Personalakten</h1><p id="status" role="status" aria-live="polite">Verbindung wird geprüft …</p><button id="login" hidden>Mit Discord anmelden</button><button id="retry" hidden>Erneut versuchen</button><section id="workspace" hidden><div class="toolbar"><label>Akten durchsuchen<input id="search" type="search" maxlength="160" placeholder="Name oder Ausweisnummer eingeben"></label><button id="new" hidden>Neue Akte</button><button id="auditToggle" type="button" hidden>Änderungsprotokoll</button></div><p id="count"></p><div id="records"></div><section id="recordDetail" hidden><button id="backToList" type="button">← Zur Aktenübersicht</button><div id="recordContent"></div></section><form id="editor" hidden><h2 id="formtitle">Akte bearbeiten</h2>${ocrMarkup}<label>Vorname<input id="first_name" maxlength="160" autocomplete="off"></label><label>Nachname<input id="last_name" maxlength="160" autocomplete="off"></label>${detailsForm}<label>Notizen<textarea id="notes" maxlength="20000" rows="10"></textarea></label><div class="actions"><button type="submit">Speichern</button><button type="button" id="cancel">Abbrechen</button></div></form>${auditMarkup}</section></main><footer>Nur für ausdrücklich freigeschaltete Mitarbeitende.</footer>`;
 const el = id => document.getElementById(id);
 const status = message => { el('status').textContent = message; };
 const url = import.meta.env.VITE_SUPABASE_URL;
@@ -18,8 +19,10 @@ let retryUntil = Number(sessionStorage.getItem('nc_retry_until')) || 0;
 let documentCleanups=[];
 let selectedRecord=null,viewVersion=0;
 const auditView=createAuditView({api,getRecords:()=>records,isAllowed:()=>role==='editor',onError:status});
+const ocrView=createOcrView({isAllowed:()=>canEdit(role)&&!el('editor').hidden,onApply:values=>{for(const [field,value] of Object.entries(values))el(field).value=value;}});
 function clearDocumentPreviews(){for(const dispose of documentCleanups)dispose();documentCleanups=[];}
 function clear() {
+  ocrView.clear();
   auditView.clear();
   clearDocumentPreviews();
   generation++; viewVersion++; selectedRecord=null; role = null; records = []; editing = null;
@@ -32,6 +35,7 @@ function render() {
   renderRecordList(el('records'),filtered,openRecord);
 }
 function showList() {
+  ocrView.clear();
   viewVersion++;selectedRecord=null;editing=null;clearDocumentPreviews();
   el('recordContent').replaceChildren();el('recordDetail').hidden=true;
   el('editor').hidden=true;el('editor').reset();el('records').hidden=false;
@@ -39,6 +43,7 @@ function showList() {
   render();el('search').focus();
 }
 async function openRecord(id) {
+  ocrView.clear();
   const request=++viewVersion,turn=generation;clearDocumentPreviews();selectedRecord=null;editing=null;
   el('editor').hidden=true;el('editor').reset();el('records').hidden=true;el('count').hidden=true;
   el('search').closest('label').hidden=true;el('recordDetail').hidden=false;
@@ -72,11 +77,12 @@ function renderDetail(record) {
       actions.append(remove);
     }
     el('recordContent').replaceChildren(article);
-    documentCleanups.push(attachDocuments(article,record,{api,canUpload:canEdit(role),onError:status,isCurrent:()=>turn===generation && view===viewVersion}));
+    documentCleanups.push(attachDocuments(article,record,{api,canUpload:canEdit(role),onError:status,isCurrent:()=>turn===generation && view===viewVersion,onRecognize:async image=>{openEditor(record);await ocrView.recognize(image);}}));
 }
 el('backToList').onclick=showList;
 
 function openEditor(record) {
+  ocrView.clear();
   if(!record){viewVersion++;selectedRecord=null;clearDocumentPreviews();el('recordContent').replaceChildren();el('recordDetail').hidden=true;el('records').hidden=true;el('count').hidden=true;el('search').closest('label').hidden=true;}
   editing = record; el('editor').hidden = false;
   el('formtitle').textContent = record ? 'Akte bearbeiten' : 'Neue Akte';
@@ -104,8 +110,9 @@ async function load() {
 }
 el('search').oninput = render;
 el('new').onclick = () => openEditor(null);
-el('cancel').onclick = () => { el('editor').hidden = true; el('editor').reset(); editing = null; if(!selectedRecord)showList(); };
+el('cancel').onclick = () => { ocrView.clear();el('editor').hidden = true; el('editor').reset(); editing = null; if(!selectedRecord)showList(); };
 el('editor').onsubmit = async event => {
+  ocrView.clear();
   event.preventDefault(); const button = event.submitter; button.disabled = true;
   try {
     const saved=await api(editing ? 'PATCH' : 'POST',{
