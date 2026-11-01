@@ -8,7 +8,7 @@ export function discordRole(roles) {
 export class AccessError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
-export async function authorize({jwt, providerToken, auth, fetcher = fetch}) {
+export async function authorize({jwt, providerToken, auth, fetcher = fetch, wait = ms => new Promise(resolve => setTimeout(resolve,ms))}) {
   if (!jwt || !providerToken) throw new AccessError(401,'Bitte abmelden und erneut mit Discord anmelden.');
   const {data,error} = await auth.getUser(jwt);
   const user = data?.user;
@@ -17,10 +17,43 @@ export async function authorize({jwt, providerToken, auth, fetcher = fetch}) {
   // Nur von Supabase verifizierte Provider-Identität, niemals user_metadata.
   const discordId = identity?.provider_id ?? identity?.identity_data?.sub;
   if (!discordId || !/^\d{17,20}$/.test(discordId)) throw new AccessError(403,'Discord-Identität konnte nicht bestätigt werden.');
-  const response = await fetcher(`https://discord.com/api/v10/users/@me/guilds/${guildId}/member`, {
+  const request = () => fetcher(`https://discord.com/api/v10/users/@me/guilds/${guildId}/member`, {
     headers: {Authorization:`Bearer ${providerToken}`}, signal:AbortSignal.timeout(8000)
   });
-  if (!response.ok) throw new AccessError(response.status === 429 ? 503 : 403,'Discord-Rollenprüfung fehlgeschlagen. Bitte später erneut anmelden.');
+  let response;
+  try { response = await request(); }
+  catch { throw new AccessError(503,'Discord ist gerade nicht erreichbar. Bitte später erneut versuchen. [Discord Netzwerk]'); }
+  async function retrySeconds(result) {
+    const header = result.headers?.get?.('retry-after');
+    if(header !== null && header !== undefined && /^\d+(\.\d+)?$/.test(header)) return Number(header);
+    try {
+      const body = await result.json();
+      return typeof body.retry_after === 'number' && Number.isFinite(body.retry_after) && body.retry_after>=0 ? body.retry_after : null;
+    } catch { return null; }
+  }
+  let retryAfter = null;
+  if(response.status === 429) {
+    retryAfter = await retrySeconds(response);
+    // Nur eine kurze, von Discord vorgegebene Wartezeit überbrücken.
+    // Niemals alte Rollen wiederverwenden oder ungeprüften Zugriff erlauben.
+    if(retryAfter !== null && retryAfter<=2) {
+      await wait(Math.ceil(retryAfter*1000)+100);
+      try { response = await request(); }
+      catch { throw new AccessError(503,'Discord ist gerade nicht erreichbar. [Discord Netzwerk]'); }
+      if(response.status===429) retryAfter=await retrySeconds(response);
+    }
+  }
+  if (!response.ok) {
+    if(response.status===429) {
+      const delay=retryAfter===null?'etwas':Math.ceil(retryAfter)+' Sekunden';
+      throw new AccessError(503,`Discord begrenzt gerade die Rollenabfragen. Bitte ${delay} warten und erneut versuchen. [Discord 429]`);
+    }
+    if(response.status===401) throw new AccessError(401,'Die Discord-Anmeldung ist abgelaufen oder ungültig. Bitte abmelden und neu anmelden. [Discord 401]');
+    if(response.status===403) throw new AccessError(403,'Discord verweigert die Rollenabfrage. Bitte erneut anmelden und die Berechtigung zum Lesen der Servermitgliedschaft erlauben. [Discord 403]');
+    if(response.status===404) throw new AccessError(403,'Discord findet deine Mitgliedschaft auf dem eingerichteten Server nicht. Bitte Discord-Konto und Server prüfen. [Discord 404]');
+    const code=Number.isInteger(response.status)?response.status:'unbekannt';
+    throw new AccessError(503,`Discord-Rollenabfrage momentan nicht möglich. Bitte später erneut versuchen. [Discord ${code}]`);
+  }
   const member = await response.json();
   if (member.user?.id !== discordId) throw new AccessError(403,'Discord-Konto stimmt nicht mit der Anmeldung überein.');
   const role = discordRole(member.roles);
