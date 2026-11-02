@@ -51,6 +51,12 @@ export function createLocalRecognizer({loadApi=loadOcrApi,prepareImage=prepareOc
        const score=value=>(regionValue(region.key,value.data.text)?1000:0)+(value.data.confidence || 0);
        if(score(alternative)>score(result))result=alternative;
       }
+      if(region.alternate && (!regionValue(region.key,result.data.text) || result.data.confidence<65)){
+       await worker.setParameters({tessedit_pageseg_mode:api.PSM.SINGLE_LINE ?? 7,tessedit_char_whitelist:whitelist});
+       const isolated=await worker.recognize(region.alternate);if(stopped)throw aborted();
+       const score=value=>(regionValue(region.key,value.data.text)?1000:0)+(value.data.confidence || 0);
+       if(score(isolated)>score(result))result=isolated;
+      }
       results[region.key]={text:result.data.text ?? '',confidence:result.data.confidence,label:region.label};
      }
      prepared.release();prepared=null;

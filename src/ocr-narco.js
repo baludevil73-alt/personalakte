@@ -2,7 +2,7 @@ import {parseIdentityText} from './ocr-parse.js';
 export const narcoRegions=[
  {key:'identity_number',x:.715,y:.025,width:.28,height:.085,channel:0,label:'Ausweisnummer'},
  {key:'full_name',x:.375,y:.26,width:.60,height:.105,channel:1,label:'Namenszeile'},
- {key:'birth_date',x:.385,y:.515,width:.25,height:.095,channel:0,label:'Geburtsdatum'},
+ {key:'birth_date',x:.385,y:.515,width:.20,height:.095,channel:0,label:'Geburtsdatum'},
  {key:'gender',x:.58,y:.515,width:.14,height:.095,channel:0,label:'Geschlecht'},
  {key:'height_cm',x:.715,y:.515,width:.14,height:.095,channel:0,label:'Körpergröße'}
 ];

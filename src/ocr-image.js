@@ -1,4 +1,10 @@
 import {narcoRegions} from './ocr-narco.js';
+export function isolateFieldPixels(data,key){
+ // Namen sind weiß auf farbigem Grund; Daten schwarz auf hellem Rot.
+ const whiteText=key==='full_name',channel=whiteText?1:0,threshold=whiteText?185:105;
+ for(let i=0;i<data.length;i+=4){const bright=data[i+channel]>=threshold;const value=(whiteText?!bright:bright)?255:0;data[i]=data[i+1]=data[i+2]=value;data[i+3]=255;}
+ return data;
+}
 export function enhancePixels(data){
  const hist=new Uint32Array(256);let visible=0,transparent=0,brightness=0;
  for(let i=0;i<data.length;i+=4){if(data[i+3]<128)transparent++;else{brightness+=.299*data[i]+.587*data[i+1]+.114*data[i+2];visible++;}}
@@ -37,13 +43,16 @@ export async function prepareOcrImage(blob,{template='whole'}={}){
     const ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)throw new Error('Bildaufbereitung nicht verfügbar.');
     ctx.imageSmoothingEnabled=false;ctx.drawImage(source,left,top,width,height,0,0,canvas.width,canvas.height);
     const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);
+    const isolated=ctx.getImageData(0,0,canvas.width,canvas.height);isolateFieldPixels(isolated.data,region.key);
     for(let i=0;i<pixels.data.length;i+=4)pixels.data[i]=pixels.data[i+1]=pixels.data[i+2]=pixels.data[i+region.channel];
     enhancePixels(pixels.data);ctx.putImageData(pixels,0,0);
     const framed=document.createElement('canvas');framed.width=canvas.width+padding*2;framed.height=canvas.height+padding*2;
     const frame=framed.getContext('2d');frame.fillStyle='#fff';frame.fillRect(0,0,framed.width,framed.height);frame.drawImage(canvas,padding,padding);canvas.width=canvas.height=1;
-    regions.push({...region,image:framed});
+    const alternate=document.createElement('canvas');alternate.width=framed.width;alternate.height=framed.height;
+    const alternateContext=alternate.getContext('2d');alternateContext.fillStyle='#fff';alternateContext.fillRect(0,0,alternate.width,alternate.height);alternateContext.putImageData(isolated,padding,padding);
+    regions.push({...region,image:framed,alternate});
    }
-   return {regions,release:()=>{for(const region of regions)region.image.width=region.image.height=1;}};
+   return {regions,release:()=>{for(const region of regions){region.image.width=region.image.height=1;region.alternate.width=region.alternate.height=1;}}};
   }
   const region=imageRegion(source.width,source.height,template),width=region.width,height=region.height;
   if(!width || !height || width*height>40000000)throw new Error('Das Bild ist zu groß. Bitte nur den Ausweis ausschneiden.');
