@@ -20,6 +20,13 @@ export async function prepareOcrImage(blob,{template='whole'}={}){
  else{const url=URL.createObjectURL(blob);source=new Image();source.src=url;try{await source.decode();}catch(error){URL.revokeObjectURL(url);throw error;}cleanup=()=>URL.revokeObjectURL(url);}
  try{
   if(!source.width || !source.height || source.width*source.height>40000000)throw new Error('Das Bild ist zu groß. Bitte nur den Ausweis ausschneiden.');
+  // Große Bildschirmfotos zuerst verkleinern: Das mittelt das Pixelraster,
+  // bevor einzelne Textzeilen für die Erkennung wieder vergrößert werden.
+  if(source.width>1000){
+   const reduced=document.createElement('canvas');reduced.width=1000;reduced.height=Math.round(source.height*1000/source.width);
+   const reducedContext=reduced.getContext('2d');reducedContext.imageSmoothingEnabled=true;reducedContext.imageSmoothingQuality='high';
+   reducedContext.drawImage(source,0,0,reduced.width,reduced.height);cleanup();source=reduced;cleanup=()=>{reduced.width=reduced.height=1;};
+  }
   if(template==='narco' && source.width/source.height>=1.5 && source.width/source.height<=2.1){
    const regions=[];
    for(const region of narcoRegions){

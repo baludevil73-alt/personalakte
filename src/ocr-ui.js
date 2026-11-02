@@ -1,3 +1,4 @@
+import {createCropView} from './ocr-crop.js';
 import {createLocalRecognizer} from './ocr-engine.js';
 import {parseIdentityText} from './ocr-parse.js';
 const fields=[['first_name','Vorname'],['last_name','Nachname'],['birth_date','Geburtsdatum'],['identity_number','Ausweisnummer'],['gender','Geschlecht'],['height_cm','Körpergröße']];
@@ -7,17 +8,18 @@ function suggestionInput(field,label){
  if(field==='height_cm')return `<select ${attributes}><option value="">Keine Angabe</option>${Array.from({length:201},(_,i)=>`<option value="${i+50}">${i+50} cm</option>`).join('')}</select>`;
  return `<input ${attributes} type="${field==='birth_date'?'date':'text'}" maxlength="160">`;
 }
-export const ocrMarkup=`<section class="ocr-panel"><h3>Ausweis auslesen</h3><p>Ein scharfes, zugeschnittenes Ausweisbild auswählen. Die Erkennung läuft im Browser; beim ersten Start werden Sprachdateien geladen. Vorschläge vor dem Speichern prüfen.</p><label>Ausweisvorlage<select id="ocrTemplate"><option value="narco">Narco City · gezeigte Karte</option><option value="whole">Andere Vorlage · vollständiges Bild</option></select></label><label>Ausweisbild<input id="ocrFile" type="file" accept="image/png,image/jpeg,image/webp"></label><div class="actions"><button id="ocrStart" type="button">Text erkennen</button><button id="ocrCancel" type="button" hidden>Erkennung abbrechen</button></div><p id="ocrStatus" role="status" aria-live="polite"></p><div id="ocrResults" hidden><h4>Erkannte Angaben prüfen</h4><p>Nur markierte Angaben werden übernommen. Bereits ausgefüllte Felder werden nur nach Bestätigung überschrieben.</p><div class="field-grid">${fields.map(([field,label])=>`<div><label class="ocr-check"><input id="ocrUse_${field}" type="checkbox">${label} übernehmen</label>${suggestionInput(field,label)}</div>`).join('')}</div><button id="ocrApply" type="button">Ausgewählte Angaben übernehmen</button><details><summary>Erkannten Text prüfen</summary><textarea id="ocrText" readonly rows="7" aria-label="Erkannter Text"></textarea></details></div></section>`;
+export const ocrMarkup=`<section class="ocr-panel"><h3>Ausweis auslesen</h3><p>Ein scharfes, zugeschnittenes Ausweisbild auswählen. Die Erkennung läuft im Browser; beim ersten Start werden Sprachdateien geladen. Vorschläge vor dem Speichern prüfen.</p><label>Ausweisvorlage<select id="ocrTemplate"><option value="narco">Narco City · gezeigte Karte</option><option value="whole">Andere Vorlage · vollständiges Bild</option></select></label><label>Ausweisbild<input id="ocrFile" type="file" accept="image/png,image/jpeg,image/webp"></label><p>Bei Bildern mit Rand: In der Vorschau von der oberen linken bis zur unteren rechten Ecke der gesamten Karte ziehen. Die Karte muss innerhalb des goldenen Rahmens liegen.</p><canvas id="ocrCrop" hidden></canvas><button id="ocrCropReset" type="button">Zuschnitt zurücksetzen</button><div class="actions"><button id="ocrStart" type="button">Text erkennen</button><button id="ocrCancel" type="button" hidden>Erkennung abbrechen</button></div><p id="ocrStatus" role="status" aria-live="polite"></p><div id="ocrResults" hidden><h4>Erkannte Angaben prüfen</h4><p>Nur markierte Angaben werden übernommen. Bereits ausgefüllte Felder werden nur nach Bestätigung überschrieben.</p><div class="field-grid">${fields.map(([field,label])=>`<div><label class="ocr-check"><input id="ocrUse_${field}" type="checkbox">${label} übernehmen</label>${suggestionInput(field,label)}</div>`).join('')}</div><button id="ocrApply" type="button">Ausgewählte Angaben übernehmen</button><details><summary>Erkannten Text prüfen</summary><textarea id="ocrText" readonly rows="7" aria-label="Erkannter Text"></textarea></details></div></section>`;
 export function createOcrView({isAllowed,onApply}){
- const el=id=>document.getElementById(id),recognizer=createLocalRecognizer();let version=0;
- function clear(keepFile=false){version++;recognizer.cancel();if(!keepFile)el('ocrFile').value='';el('ocrResults').hidden=true;el('ocrText').value='';el('ocrStatus').textContent='';el('ocrStart').disabled=false;el('ocrCancel').hidden=true;for(const [field] of fields){el('ocrValue_'+field).value='';el('ocrUse_'+field).checked=false;}}
+ const el=id=>document.getElementById(id),recognizer=createLocalRecognizer(),crop=createCropView(el('ocrCrop'));let version=0;
+ function clear(keepFile=false){version++;recognizer.cancel();if(!keepFile){el('ocrFile').value='';crop.clear();}el('ocrResults').hidden=true;el('ocrText').value='';el('ocrStatus').textContent='';el('ocrStart').disabled=false;el('ocrCancel').hidden=true;for(const [field] of fields){el('ocrValue_'+field).value='';el('ocrUse_'+field).checked=false;}}
  async function recognize(image){
   if(!isAllowed())return;
   clear(true);const request=version;
   if(!image || image.size>2*1024*1024 || !['image/png','image/jpeg','image/webp'].includes(image.type)){el('ocrStatus').textContent='Bitte ein PNG-, JPEG- oder WebP-Bild mit höchstens 2 MiB auswählen.';return;}
   el('ocrStart').disabled=true;el('ocrCancel').hidden=false;el('ocrStatus').textContent='Texterkennung wird vorbereitet …';
   try{
-   const result=await recognizer.recognize(image,(stage,progress)=>{
+   const cropped=await crop.image(image);if(request!==version)return;
+   const result=await recognizer.recognize(cropped,(stage,progress)=>{
     if(request!==version)return;
     el('ocrStatus').textContent=stage==='preparing image'?'Bild wird vergrößert und der Kontrast angepasst …':stage==='second pass'?'Zweiter Erkennungsversuch für das Kartenlayout …':stage==='recognizing text'?'Text wird erkannt · '+Math.round(progress*100)+' %':'Texterkennung und Sprachdateien werden vorbereitet …';
    },{template:el('ocrTemplate').value});
@@ -32,7 +34,8 @@ export function createOcrView({isAllowed,onApply}){
  el('ocrStart').onclick=()=>recognize(el('ocrFile').files?.[0]);
  el('ocrCancel').onclick=()=>{clear();el('ocrStatus').textContent='Erkennung abgebrochen.';};
  el('ocrTemplate').onchange=()=>clear(true);
- el('ocrFile').onchange=()=>{version++;recognizer.cancel();el('ocrResults').hidden=true;el('ocrText').value='';el('ocrStatus').textContent='';el('ocrStart').disabled=false;el('ocrCancel').hidden=true;};
+ el('ocrCropReset').onclick=()=>crop.reset();
+ el('ocrFile').onchange=()=>{version++;recognizer.cancel();el('ocrResults').hidden=true;el('ocrText').value='';el('ocrStatus').textContent='';el('ocrStart').disabled=false;el('ocrCancel').hidden=true;crop.clear();const file=el('ocrFile').files?.[0];if(file&&file.size<=2*1024*1024&&['image/png','image/jpeg','image/webp'].includes(file.type))void crop.load(file).catch(()=>{el('ocrStatus').textContent='Bildvorschau konnte nicht geladen werden.';});};
  el('ocrApply').onclick=()=>{
   if(!isAllowed())return;
   const values={};for(const [field] of fields)if(el('ocrUse_'+field).checked && el('ocrValue_'+field).value.trim())values[field]=el('ocrValue_'+field).value.trim();
